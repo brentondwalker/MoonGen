@@ -14,6 +14,8 @@ local namespaces = require "namespaces"
 
 local PKT_SIZE	= 60
 
+-- sudo ./build/MoonGen examples/l2-forward-psring-hybrid-latency-rate-lte-catchup.lua -d 2 3 -r 40 38 -l 30 10 -q 350 1000 -u 1000 1000 -c 0.01 0.01
+
 
 function configure(parser)
 	parser:description("Forward traffic between interfaces with moongen rate control")
@@ -138,6 +140,8 @@ function forward(threadNumber, ns, ring, txQueue, txDev, rate, latency, xlatency
 	print("forward with rate "..rate.." and latency "..latency.." and loss rate "..lossrate.." and clossrate "..clossrate.." and catchuprate "..catchuprate)
 	local numThreads = 1
 
+	math.randomseed( os.time() )
+
 	local linkspeed = txDev:getLinkStatus().speed
 	print("linkspeed = "..linkspeed)
 
@@ -256,9 +260,14 @@ function forward(threadNumber, ns, ring, txQueue, txDev, rate, latency, xlatency
 				local send_time = arrival_timestamp
 				send_time = send_time + ((closses*concealed_resend_time + latency + extraDelay) * tsc_hz_ms + time_stuck_in_loop)
 				if(closses > 0) then
-					-- compute how long other packets have to transmit while the concealed loss is getting detected/corrected
-					clI = send_time - (arrival_timestamp + latency)
+					-- compute how much time other packets have left to transmit while
+					-- the concealed loss is getting detected/corrected
 					cl_send_time = send_time
+					local pktSize = buf.pkt_len + 24
+					local time_to_tx_ms = ((pktSize*8) / (rate*1000))
+					--clI = cl_send_time - arrival_timestamp - (time_to_tx_ms + latency) * tsc_hz_ms
+					clI = (closses*concealed_resend_time + time_to_tx_ms) * tsc_hz_ms
+					print("time_to_tx_ms = ",time_to_tx_ms)
 					print("clI = ",clI)
 					print("cl_send_time = ",cl_send_time)
 				end
@@ -267,11 +276,18 @@ function forward(threadNumber, ns, ring, txQueue, txDev, rate, latency, xlatency
 				-- for now, just check if its normal send_time comes before the delayed send time of the concelaed lost packet
 				if (closses == 0 and catchup_mode) then
 					print("in catchup_mode, testing...", send_time, cl_send_time)
+					local pktSize = buf.pkt_len + 24
+					local time_to_tx_tsc = ((pktSize*8) / (rate*1000)) * tsc_hz_ms
 					if (send_time > cl_send_time) then
 						-- we exit catchup_mode
+						print("exiting catchup_mode for send_time = ", send_time, cl_send_time, (cl_send_time-send_time))
 						catchup_mode = false
-						print("exiting catchup_mode for send_time = ")
-						print(send_time, cl_send_time)
+					elseif (time_to_tx_tsc > (cl_send_time-send_time)) then
+						print("exiting catchup_mode for CLI", time_to_tx_tsc, clI, (cl_send_time-send_time))
+						catchup_mode = false
+					else
+						clI = cl_send_time - send_time - time_to_tx_tsc
+						print("staying in catchup mode clI = ",clI)
 					end
 				end
 				
