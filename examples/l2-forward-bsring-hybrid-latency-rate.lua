@@ -38,6 +38,7 @@ function master(args)
 			rssQueues = 0,
 			rssFunctions = {},
 			rxDescs = 4096,
+			txDescs = 32,
 			dropEnable = true,
 			disableOffloads = true
 		}
@@ -52,10 +53,20 @@ function master(args)
 	local qdepth1 = args.queuedepth[1]
 	if qdepth1 < 1 then
 		qdepth1 = math.floor((args.latency[1] * args.rate[1] * 1000)/8)
+		print("target queue depth="..qdepth1)
+		if (qdepth1 < 3000) then
+			qdepth1 = 3000
+		end
+		print("automatically setting qdepth1="..qdepth1)
 	end
 	local qdepth2 = args.queuedepth[2]
 	if qdepth2 < 1 then
 		qdepth2 = math.floor((args.latency[2] * args.rate[2] * 1000)/8)
+		print("target queue depth="..qdepth2)
+		if (qdepth2 < 3000) then
+			qdepth2 = 3000
+		end
+		print("automatically setting qdepth2="..qdepth2)
 	end
 	local ring1 = pipe:newBytesizedRing(qdepth1)
 	local ring2 = pipe:newBytesizedRing(qdepth2)
@@ -83,13 +94,17 @@ end
 function receive(ring, rxQueue, rxDev)
 	local bufs = memory.createBufArray()
 	local count = 0
-	local count_hist = histogram:new()
-	local ringsize_hist = histogram:new()
+	--local count_hist = histogram:new()
+	--local ringsize_hist = histogram:new()
 	local ringbytes_hist = histogram:new()
 	local ts = 0
 	while mg.running() do
+		--print("RX: calling recv()")
 		count = rxQueue:recv(bufs)
-		count_hist:update(count)
+		--if count > 0 then
+		--	print("RX: ",count)
+		--end
+		--count_hist:update(count)
 		for iix=1,count do
 			local buf = bufs[iix]
 			--if buf:hasTimestamp() then
@@ -99,19 +114,21 @@ function receive(ring, rxQueue, rxDev)
 			buf.udata64 = ts
 		end
 		if count > 0 then
+			--print("RX: sending to BSring",count)
 			local num_added = pipe:sendToBytesizedRing(ring.ring, bufs, count)
-			if (num_added < count) then
-				print("failed to add packets to bsring "..num_added.."  "..count)
-			end
-			ringsize_hist:update(pipe:countBytesizedRing(ring.ring))
+			--print("RX: queued to BSring",num_added,count)
+			--if (num_added < count) then
+			--	print("failed to add packets to bsring "..num_added.."  "..count)
+			--end
+			--ringsize_hist:update(pipe:countBytesizedRing(ring.ring))
 			ringbytes_hist:update(pipe:bytesusedBytesizedRing(ring.ring))
 			--print("ring count/usage: ",pipe:countBytesizedRing(ring.ring),pipe:bytesusedBytesizedRing(ring.ring),count)
 		end
 	end
-	count_hist:print()
-	count_hist:save("rxq-pkt-count-distribution-histogram-"..rxDev["id"]..".csv")
-	ringsize_hist:print()
-	ringsize_hist:save("rxq-ringsize-distribution-histogram-"..rxDev["id"]..".csv")
+	--count_hist:print()
+	--count_hist:save("rxq-pkt-count-distribution-histogram-"..rxDev["id"]..".csv")
+	--ringsize_hist:print()
+	--ringsize_hist:save("rxq-ringsize-distribution-histogram-"..rxDev["id"]..".csv")
 	ringbytes_hist:print()
 	ringbytes_hist:save("rxq-ringbytes-distribution-histogram-"..rxDev["id"]..".csv")
 end
@@ -121,8 +138,8 @@ function forward(ring, txQueue, txDev, rate, latency, xlatency, lossrate, clossr
 	print("forward with rate "..rate.." and latency "..latency.." and loss rate "..lossrate.." and clossrate "..clossrate.." and catchuprate "..catchuprate)
 	local numThreads = 1
 	
-	local count_hist = histogram:new()
-	local size_hist = histogram:new()
+	--local count_hist = histogram:new()
+	--local size_hist = histogram:new()
 
 	local linkspeed = txDev:getLinkStatus().speed
 	print("linkspeed = "..linkspeed)
@@ -142,8 +159,14 @@ function forward(ring, txQueue, txDev, rate, latency, xlatency, lossrate, clossr
 	
 	while mg.running() do
 		-- receive one or more packets from the queue
+		--print("TX: call recvFromBytesizedRing()")
+		--------local preq_time = limiter:get_tsc_cycles()
 		count = pipe:recvFromBytesizedRing(ring.ring, bufs, 1)
-		count_hist:update(count)
+		--------local dq_time = limiter:get_tsc_cycles()
+		--if (count > 0) then
+		--	print("TX: recvFromBsRing()",count)
+		--end
+		--count_hist:update(count)
 
 		for iix=1,count do
 			local buf = bufs[iix]
@@ -153,25 +176,28 @@ function forward(ring, txQueue, txDev, rate, latency, xlatency, lossrate, clossr
 
 			-- emulate extra exponential random delay
 			local extraDelay = 0.0
-			if (xlatency > 0) then
-				extraDelay = -math.log(math.random())*xlatency
-			end
+			--if (xlatency > 0) then
+			--	extraDelay = -math.log(math.random())*xlatency
+			--end
 
 			-- emulate concealed losses
 			local closses = 0
-			while (math.random() < clossrate) do
-				closses = closses + 1
-				if (catchuprate > 0) then
-					catchup_mode = true
-					--print "entering catchup mode!"
-				end
-			end
-			local send_time = arrival_timestamp + (((closses+1)*latency + extraDelay) * tsc_hz_ms)
+			--while (math.random() < clossrate) do
+			--	closses = closses + 1
+			--	if (catchuprate > 0) then
+			--		catchup_mode = true
+			--		--print "entering catchup mode!"
+			--	end
+			--end
+			--local send_time = arrival_timestamp + (((closses+1)*latency + extraDelay) * tsc_hz_ms)
+			local send_time = arrival_timestamp + (latency * tsc_hz_ms)
 
 			local cur_time = limiter:get_tsc_cycles()
 			-- spin/wait until it is time to send this frame
 			-- this assumes frame order is preserved
-				
+			--if cur_time > send_time then
+			--	print("extra time spent in delay ring! ",(cur_time-send_time))
+			--end
 			while cur_time < send_time do
 				catchup_mode = false
 				if not mg.running() then
@@ -181,7 +207,7 @@ function forward(ring, txQueue, txDev, rate, latency, xlatency, lossrate, clossr
 			end
 					
 			local pktSize = buf.pkt_len + 24
-			size_hist:update(buf.pkt_len)
+			--size_hist:update(buf.pkt_len)
 			if (catchup_mode) then
 				--print "operating in catchup mode!"
 				--print("catchup setting delay to "..((pktSize) * (linkspeed/rate - 1)).." on buf ",buf)
@@ -193,14 +219,23 @@ function forward(ring, txQueue, txDev, rate, latency, xlatency, lossrate, clossr
 			--if count > 0 then
 			if count > 0 then
 				-- the rate here doesn't affect the result afaict.  It's just to help decide the size of the bad pkts
+				--print("TX: send",count)
+				--------local tx_time = limiter:get_tsc_cycles()
+				--------local q_size = pipe:countBytesizedRing(ring.ring)
+				--------local q_bytes = pipe:bytesusedBytesizedRing(ring.ring)
+				--print("extra time before transmit ",(tx_time-send_time))
 				txQueue:sendWithDelayLoss(bufs, rate * numThreads, lossrate, count)
+				--------local tx_complete_time = limiter:get_tsc_cycles()
+				--print("extra time to complete transmit ",(tx_complete_time-send_time))
+				--print("sendWithDelayLoss() "..count)
+				--------print("***", send_time, preq_time, dq_time, tx_time, tx_complete_time, q_size, q_bytes)
 			end
 		end   -- if count > 0 then
 	end   -- while mg.running() do
-	count_hist:print()
-	count_hist:save("pkt-count-distribution-histogram-"..tonumber(txDev["id"])..".csv")
-	size_hist:print()
-	size_hist:save("pkt-size-distribution-histogram-"..tonumber(txDev["id"])..".csv")
+	--count_hist:print()
+	--count_hist:save("pkt-count-distribution-histogram-"..tonumber(txDev["id"])..".csv")
+	--size_hist:print()
+	--size_hist:save("pkt-size-distribution-histogram-"..tonumber(txDev["id"])..".csv")
 end
 
 

@@ -80,8 +80,9 @@ function master(args)
 
 	-- start the forwarding tasks
 	for i = 1, args.threads do
+		-- uplink does not have to wait for a RCC_IDLE cycle, so the rcc_idle_cycle_length is effectively zero
 		mg.startTask("forward", 1, ns, ring1, args.dev[1]:getTxQueue(i - 1), args.dev[1], args.rate[1], args.latency[1], args.xlatency[1], args.loss[1], args.concealedloss[1], args.catchuprate[1],
-			args.short_DRX_cycle_length, args.long_DRX_cycle_length, args.active_time, args.continuous_reception_inactivity_timer, args.short_DRX_inactivity_timer, args.long_DRX_inactivity_timer, args.rcc_idle_cycle_length, args.rcc_connection_build_delay)
+			args.short_DRX_cycle_length, args.long_DRX_cycle_length, args.active_time, args.continuous_reception_inactivity_timer, args.short_DRX_inactivity_timer, args.long_DRX_inactivity_timer, 0, args.rcc_connection_build_delay)
 		if args.dev[1] ~= args.dev[2] then
 			mg.startTask("forward", 2, ns, ring2, args.dev[2]:getTxQueue(i - 1), args.dev[2], args.rate[2], args.latency[2], args.xlatency[2], args.loss[2], args.concealedloss[2], args.catchuprate[2],
 					args.short_DRX_cycle_length, args.long_DRX_cycle_length, args.active_time, args.continuous_reception_inactivity_timer, args.short_DRX_inactivity_timer, args.long_DRX_inactivity_timer, args.rcc_idle_cycle_length, args.rcc_connection_build_delay)
@@ -252,7 +253,7 @@ function forward(threadNumber, ns, ring, txQueue, txDev, rate, latency, xlatency
 					closses = closses + 1
 					if (catchuprate > 0) then
 						catchup_mode = true
-						print "entering catchup mode!"
+						----print "entering catchup mode!"
 					end
 				end
 				end
@@ -267,27 +268,27 @@ function forward(threadNumber, ns, ring, txQueue, txDev, rate, latency, xlatency
 					local time_to_tx_ms = ((pktSize*8) / (rate*1000))
 					--clI = cl_send_time - arrival_timestamp - (time_to_tx_ms + latency) * tsc_hz_ms
 					clI = (closses*concealed_resend_time + time_to_tx_ms) * tsc_hz_ms
-					print("time_to_tx_ms = ",time_to_tx_ms)
-					print("clI = ",clI)
-					print("cl_send_time = ",cl_send_time)
+					----print("time_to_tx_ms = ",time_to_tx_ms)
+					----print("clI = ",clI)
+					----print("cl_send_time = ",cl_send_time)
 				end
 
 				-- if we're in catchup_mode, check if the current packet fits inside the clI window or not
 				-- for now, just check if its normal send_time comes before the delayed send time of the concelaed lost packet
 				if (closses == 0 and catchup_mode) then
-					print("in catchup_mode, testing...", send_time, cl_send_time)
+					----print("in catchup_mode, testing...", send_time, cl_send_time)
 					local pktSize = buf.pkt_len + 24
 					local time_to_tx_tsc = ((pktSize*8) / (rate*1000)) * tsc_hz_ms
 					if (send_time > cl_send_time) then
 						-- we exit catchup_mode
-						print("exiting catchup_mode for send_time = ", send_time, cl_send_time, (cl_send_time-send_time))
+						----print("exiting catchup_mode for send_time = ", send_time, cl_send_time, (cl_send_time-send_time))
 						catchup_mode = false
 					elseif (time_to_tx_tsc > (cl_send_time-send_time)) then
-						print("exiting catchup_mode for CLI", time_to_tx_tsc, clI, (cl_send_time-send_time))
+						----print("exiting catchup_mode for CLI", time_to_tx_tsc, clI, (cl_send_time-send_time))
 						catchup_mode = false
 					else
 						clI = cl_send_time - send_time - time_to_tx_tsc
-						print("staying in catchup mode clI = ",clI)
+						----print("staying in catchup mode clI = ",clI)
 					end
 				end
 				
@@ -306,10 +307,10 @@ function forward(threadNumber, ns, ring, txQueue, txDev, rate, latency, xlatency
 				local pktSize = buf.pkt_len + 24
 				if (catchup_mode) then
 					buf:setDelay((pktSize) * (linkspeed/catchuprate - 1))
-					print("sending catchup_mode true")
+					----print("sending catchup_mode true")
 				else
 					buf:setDelay((pktSize) * (linkspeed/rate - 1))
-					print("sending catchup_mode false")
+					----print("sending catchup_mode false")
 				end
 			end
 
@@ -458,6 +459,7 @@ function forward(threadNumber, ns, ring, txQueue, txDev, rate, latency, xlatency
             time_stuck_in_loop = 0
 
             -- time to wait
+	    if (rcc_idle_cycle_length_tsc_hz_ms > 0) then
             while limiter:get_tsc_cycles() < last_activity + rcc_idle_cycle_length_tsc_hz_ms - active_time_tsc_hz_ms do
                 lcount = pipe:countPktsizedRing(ring.ring)
                 if (lcount > 0) and (packet_arrival_time == 0) then
@@ -467,6 +469,7 @@ function forward(threadNumber, ns, ring, txQueue, txDev, rate, latency, xlatency
                     return
                 end
             end
+	    end
 
             -- save the time the packet waited
             last_activity = limiter:get_tsc_cycles()

@@ -51,11 +51,19 @@ function master(args)
 	-- should set the size here, based on the line speed and latency, and maybe desired queue depth
 	local qdepth1 = args.queuedepth[1]
 	if qdepth1 < 1 then
-		qdepth1 = math.floor((args.latency[1] * args.rate[1] * 1000)/672)
+		qdepth1 = math.ceil((args.latency[1] * args.rate[1] * 1000)/672)
+		if (qdepth1 == 0) then
+			qdepth1 = 1
+		end
+		print("automatically setting qdepth1="..qdepth1)
 	end
 	local qdepth2 = args.queuedepth[2]
 	if qdepth2 < 1 then
-		qdepth2 = math.floor((args.latency[2] * args.rate[2] * 1000)/672)
+		qdepth2 = math.ceil((args.latency[2] * args.rate[2] * 1000)/672)
+		if (qdepth2 == 0) then
+			qdepth2 = 1
+		end
+		print("automatically setting qdepth2="..qdepth2)
 	end
 	local ring1 = pipe:newPktsizedRing(qdepth1)
 	local ring2 = pipe:newPktsizedRing(qdepth2)
