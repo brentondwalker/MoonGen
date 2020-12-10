@@ -3,3 +3,5 @@
 	url = https://github.com/brentondwalker/libmoon.git
 	branch = master
 
+[libmoon "libmoon"]
+	master = master
