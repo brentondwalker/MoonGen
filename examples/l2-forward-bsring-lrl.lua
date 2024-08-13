@@ -9,6 +9,7 @@ local pipe    = require "pipe"
 local ffi     = require "ffi"
 local libmoon = require "libmoon"
 local histogram = require "histogram"
+--local bit64   = require "bit64"
 
 local PKT_SIZE	= 60
 
@@ -102,6 +103,7 @@ function receive(ring, rxQueue, rxDev)
 			local buf = bufs[iix]
 			local ts = limiter:get_tsc_cycles()
 			buf.udata64 = ts
+			--print("RXRX arrival: ", bit64.tohex(buf.udata64))
 		end
 		if count > 0 then
 			pipe:sendToBytesizedRing(ring.ring, bufs, count)
@@ -139,7 +141,10 @@ function forward(ring, txQueue, txDev, rate, latency, lossrate)
 			
 			-- get the buf's arrival timestamp and compute departure time
 			local arrival_timestamp = buf.udata64
+			--print("TXTX arrival: ", bit64.tohex(buf.udata64))
 			local send_time = arrival_timestamp + (latency * tsc_hz_ms)
+			--print("TXTX send time: ", bit64.tohex(send_time))
+                        --print("TXTX tsc_cycles: ", bit64.tohex(limiter:get_tsc_cycles()))
 
 			-- spin/wait until it is time to send this frame
 			-- this does not allow reordering of frames
@@ -150,6 +155,7 @@ function forward(ring, txQueue, txDev, rate, latency, lossrate)
 			end
 			
 			local pktSize = buf.pkt_len + 24
+			--print("TXTX set delay: ", (pktSize) * (linkspeed/rate - 1))
 			buf:setDelay((pktSize) * (linkspeed/rate - 1))
 		end
 
