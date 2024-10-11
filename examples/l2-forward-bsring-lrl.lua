@@ -21,6 +21,7 @@ function configure(parser)
 	parser:option("-l --latency", "Fixed emulated latency (in ms) on the link."):args(2):convert(tonumber):default({0,0})
 	parser:option("-q --queuedepth", "Maximum number of bytes to hold in the delay line"):args(2):convert(tonumber):default({0,0})
 	parser:option("-o --loss", "Rate of packet drops"):args(2):convert(tonumber):default({0,0})
+	parser:option("-x --extraqueue", "For automatic queue depth, allocate this number of extra bytes in the queue."):args(2):convert(tonumber):default({0,0})
 	return parser:parse()
 end
 
@@ -47,22 +48,34 @@ function master(args)
        -- create the ring buffers
         -- should set the size here, based on the line speed and latency, and maybe desired queue depth
         local qdepth1 = args.queuedepth[1]
+	local qextra1 = args.extraqueue[1]
         if qdepth1 < 1 then
-                qdepth1 = math.floor((args.latency[1] * args.rate[1] * 1000)/8)
+                qdepth1 = math.floor((args.latency[1] * args.rate[1] * 1000)/8) + qextra1
                 print("target queue depth="..qdepth1)
                 if (qdepth1 < 3000) then
                         qdepth1 = 3000
                 end
                 print("automatically setting qdepth1="..qdepth1)
+	else
+		if qextra1 > 0 then
+		   print("ERROR: cannot use both -q and -x arguments")
+		   return
+		end
         end
         local qdepth2 = args.queuedepth[2]
+	local qextra2 = args.extraqueue[2]
         if qdepth2 < 1 then
-                qdepth2 = math.floor((args.latency[2] * args.rate[2] * 1000)/8)
+                qdepth2 = math.floor((args.latency[2] * args.rate[2] * 1000)/8) + qextra2
                 print("target queue depth="..qdepth2)
                 if (qdepth2 < 3000) then
                         qdepth2 = 3000
                 end
                 print("automatically setting qdepth2="..qdepth2)
+	else
+		if qextra1 > 0 then
+		   print("ERROR: cannot use both -q and -x arguments")
+		   return
+		end
         end
         local ring1 = pipe:newBytesizedRing(qdepth1)
         local ring2 = pipe:newBytesizedRing(qdepth2)
