@@ -227,6 +227,10 @@ def install_moongen_dependencies(nodeinfo):
     # libtbb2 libtbb-dev
     deps = ["htop", "libtbb2", "libtbb-dev"]
     quagga_sed_cmd = "sudo sed -i \"/\b\(quagga\)\b/d\" /var/lib/dpkg/statoverride"
+    print("quagga sed command: ", quagga_sed_cmd, file=sys.stderr)
+    response = subprocess.Popen(f"ssh -o StrictHostKeyChecking=no "+nodeinfo['hostname']+" '"+quagga_sed_cmd+"'",
+                                shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
+    print("response: ", response, file=sys.stderr)
     response = subprocess.Popen(f"ssh -o StrictHostKeyChecking=no "+nodeinfo['hostname']+" 'sudo apt update'",
                                 shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
     print("response: ", response, file=sys.stderr)

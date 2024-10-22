@@ -138,16 +138,20 @@ def query_moongen(nodeinfo):
     ip_out =  subprocess.Popen(f"ssh -o StrictHostKeyChecking=no "+nodeinfo['hostname']+" '"+ip_addr_cmd+"'",
                                shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
     usable_interfaces = []
+    iface_idx = -1
     for line in ip_out[0].decode().split("\n"):
         #print("\tprocessing line: ",line, file=sys.stderr)
+        if ("DOWN" in line) or ("10.10." in line):
+            iface_idx += 1
         fields = line.split()
         if len(fields) >=3:
             (ifname, state, ipv4) = fields[0:3]
             (ip,mask) = ipv4.split('/')
             for ifinfo in nodeinfo['ifaces']:
                 if ifinfo['ip'] == ip:
-                    print("\tdiscovered the interface for ip: ", ifname, ip, file=sys.stderr)
+                    print("\tdiscovered the interface for ip: ", ifname, ip, iface_idx, file=sys.stderr)
                     ifinfo['ifname'] = ifname
+                    ifinfo['idx'] = iface_idx
                     usable_interfaces.append(ifname)
     if len(usable_interfaces) != len(nodeinfo['ifaces']):
         print("ERROR: did not find enough usable interfaces to match the config skeleton!", len(usable_interfaces), len(nodeinfo['ifaces']), file=sys.stderr)
@@ -155,17 +159,13 @@ def query_moongen(nodeinfo):
     else:
         usable_interfaces.sort()
         print("\tusable interfaces: ",usable_interfaces, file=sys.stderr)
-        if2idx = {}
-        for i in range(0,len(usable_interfaces)):
-            if2idx[usable_interfaces[i]] = i+1
         link_pool = {}
         for ifinfo in nodeinfo['ifaces']:
-            ifinfo['idx'] = if2idx[ifinfo['ifname']]
             ip_prefix = re.search(r"10.10.\d+.", ifinfo['ip']).group()
             #print("\tregex matched: ", ip_prefix, ifinfo['ifname'], file=sys.stderr)
             if ip_prefix not in link_pool:
                 link_pool[ip_prefix] = []
-            link_pool[ip_prefix].append(if2idx[ifinfo['ifname']]) 
+            link_pool[ip_prefix].append(ifinfo['idx']) 
             
         #print("\tlink pool: ",link_pool, file=sys.stderr)
         nodeinfo['links'] = []
@@ -238,11 +238,29 @@ def setup_router(nodeinfo, routerip):
     print("response: ", response, file=sys.stderr)
 
 
+def install_moongen_dependencies(nodeinfo):
+    # to just run moongen we only need to add:
+    # libtbb2 libtbb-dev
+    deps = ["htop", "libtbb2", "libtbb-dev"]
+    quagga_sed_cmd = "sudo sed -i \"/\b\(quagga\)\b/d\" /var/lib/dpkg/statoverride"
+    print("quagga sed command: ", quagga_sed_cmd, file=sys.stderr)
+    response = subprocess.Popen(f"ssh -o StrictHostKeyChecking=no "+nodeinfo['hostname']+" '"+quagga_sed_cmd+"'",
+                                shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
+    print("response: ", response, file=sys.stderr)
+    response = subprocess.Popen(f"ssh -o StrictHostKeyChecking=no "+nodeinfo['hostname']+" 'sudo apt update'",
+                                shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
+    print("response: ", response, file=sys.stderr)
+    response = subprocess.Popen(f"ssh -o StrictHostKeyChecking=no "+nodeinfo['hostname']+" 'sudo apt install "+" ".join(deps)+"'",
+                                shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
+    print("response: ", response, file=sys.stderr)
 
+    
 def setup_moongen(nodeinfo, rate, latency=0, queue=0):
     # this is the tough one!
     # assume thr nodeinfo already contains the info about which
     # interfaces to link together
+
+    install_moongen_dependencies(nodeinfo)
 
     print("\n\nconfiguring moongen ",nodeinfo['hostname'], file=sys.stderr)
     # first take the interfaces down
@@ -296,7 +314,7 @@ def setup_moongen(nodeinfo, rate, latency=0, queue=0):
     response = subprocess.Popen(f"ssh -o StrictHostKeyChecking=no "+nodeinfo['hostname']+" '"+moongen_cmd+"'",
                                 shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
     print("response: ", response, file=sys.stderr)
-
+    
 
 def gather_config(nodeinfo, exp_name, proj_name):
     # when the experiment is first created, this will gather all the
